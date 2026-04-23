@@ -27,7 +27,7 @@ pipeline {
         stage('Clone Repository') {
             steps {
                 script {
-                    git branch: 'dev', url: 'https://github.com/premwebdev0/Qualibytes-Ecommerce.git'
+                    git branch: 'main', url: 'https://github.com/premwebdev0/Qualibytes-Ecommerce.git'
                 }
             }
         }
