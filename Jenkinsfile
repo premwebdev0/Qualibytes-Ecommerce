@@ -161,3 +161,18 @@ pipeline {
         }
     }
 }
+stage('Build Docker Images') {
+    parallel {
+        stage('Build App Image') {
+            steps {
+                sh 'docker build -t qbshop-app:latest .'
+            }
+        }
+
+        stage('Build Migration Image') {
+            steps {
+                sh 'docker build -t qbshop-migration:latest .'
+            }
+        }
+    }
+}
