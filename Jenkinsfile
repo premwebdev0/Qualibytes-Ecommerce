@@ -1,90 +1,146 @@
+@Library('Shared') _
+
 pipeline {
     agent any
-
+    
     environment {
+        // Updated image names for QBShop project (DEV)
         DOCKER_IMAGE_NAME = 'qazsxedc/qbshop-app'
         DOCKER_MIGRATION_IMAGE_NAME = 'qazsxedc/qbshop-migration'
         DOCKER_IMAGE_TAG = "${BUILD_NUMBER}"
-
-        CONTAINER_NAME = "ecommerce-container"
-        PORT = "3000"
+        GITHUB_CREDENTIALS = credentials('github-credentials')
+        GIT_BRANCH = "dev"
     }
-
+    
     stages {
 
         stage('Cleanup Workspace') {
             steps {
-                cleanWs()
+                script {
+                    clean_ws()
+                }
             }
         }
 
         stage('Clone Repository') {
             steps {
-                git branch: 'main', url: 'https://github.com/premwebdev0/Qualibytes-Ecommerce.git'
+                script {
+                    clone("https://github.com/premwebdev0/Qualibytes-Ecommerce.git")
+                }
             }
         }
 
-        stage('Cleanup Docker') {
+        //  NEW STAGE: Cleanup old Docker images to avoid disk full issues
+        stage('Cleanup Old Docker Images') {
             steps {
-                sh '''
-                docker image prune -f
-                docker container prune -f
-                docker volume prune -f
-                '''
+                script {
+                    echo "Cleaning up old Docker images, containers & volumes..."
+
+                    // Remove dangling images
+                    sh "docker image prune -f"
+
+                    // Remove unused images older than 12 hours
+                    sh "docker image prune -a --force --filter \"until=12h\""
+
+                    // Remove stopped containers
+                    sh "docker container prune -f"
+
+                    // Remove unused volumes (safe)
+                    sh "docker volume prune -f"
+
+                    echo "Cleanup completed successfully!"
+                }
             }
         }
-
-        stage('Build Images') {
+        
+        stage('Build Docker Images') {
             parallel {
-
-                stage('Build App Image') {
+                
+                stage('Build Main App Image') {
                     steps {
-                        sh '''
-                        docker build -t ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG} .
-                        '''
+                        script {
+                            docker_build(
+                                imageName: env.DOCKER_IMAGE_NAME,
+                                imageTag: env.DOCKER_IMAGE_TAG,
+                                dockerfile: 'Dockerfile',
+                                context: '.'
+                            )
+                        }
                     }
                 }
-
+                
                 stage('Build Migration Image') {
                     steps {
-                        sh '''
-                        docker build -t ${DOCKER_MIGRATION_IMAGE_NAME}:${DOCKER_IMAGE_TAG} -f scripts/Dockerfile.migration .
-                        '''
+                        script {
+                            docker_build(
+                                imageName: env.DOCKER_MIGRATION_IMAGE_NAME,
+                                imageTag: env.DOCKER_IMAGE_TAG,
+                                dockerfile: 'scripts/Dockerfile.migration',
+                                context: '.'
+                            )
+                        }
                     }
                 }
             }
         }
-
-        stage('Push Images') {
+        
+        stage('Run Unit Tests') {
             steps {
-                sh '''
-                docker push ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}
-                docker push ${DOCKER_MIGRATION_IMAGE_NAME}:${DOCKER_IMAGE_TAG}
-                '''
+                script {
+                    run_tests()
+                }
             }
         }
-
-        stage('Deploy Container') {
+        
+        stage('Security Scan with Trivy') {
             steps {
-                sh '''
-                docker rm -f ${CONTAINER_NAME} || true
-
-                docker run -d \
-                -p ${PORT}:3000 \
-                --name ${CONTAINER_NAME} \
-                ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}
-                '''
+                script {
+                    trivy_scan()
+                }
             }
         }
-    }
-
-    post {
-        success {
-            echo "✅ SUCCESS: App deployed successfully"
+        
+        stage('Push Docker Images') {
+            parallel {
+                
+                stage('Push Main App Image') {
+                    steps {
+                        script {
+                            docker_push(
+                                imageName: env.DOCKER_IMAGE_NAME,
+                                imageTag: env.DOCKER_IMAGE_TAG,
+                                credentials: 'docker-hub-credentials'
+                            )
+                        }
+                    }
+                }
+                
+                stage('Push Migration Image') {
+                    steps {
+                        script {
+                            docker_push(
+                                imageName: env.DOCKER_MIGRATION_IMAGE_NAME,
+                                imageTag: env.DOCKER_IMAGE_TAG,
+                                credentials: 'docker-hub-credentials'
+                            )
+                        }
+                    }
+                }
+            }
         }
-
-        failure {
-            echo "❌ FAILED: Check logs"
+        
+        stage('Update Kubernetes Manifests') {
+            steps {
+                script {
+                    update_k8s_manifests(
+                        imageTag: env.DOCKER_IMAGE_TAG,
+                        manifestsPath: 'kubernetes',
+                        gitCredentials: 'github-credentials',
+                        gitUserName: 'Jenkins CI',
+                        gitUserEmail: 'jenkins@ci.local'
+                    )
+                }
+            }
         }
     }
 }
