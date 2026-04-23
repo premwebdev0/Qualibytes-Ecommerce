@@ -24,81 +24,67 @@ pipeline {
             }
         }
 
-        stage('Cleanup Old Docker Resources') {
+        stage('Cleanup Docker') {
             steps {
-                sh "docker image prune -f"
-                sh "docker container prune -f"
-                sh "docker volume prune -f"
+                sh '''
+                docker image prune -f
+                docker container prune -f
+                docker volume prune -f
+                '''
             }
         }
 
-        stage('Build Docker Images') {
+        stage('Build Images') {
             parallel {
 
                 stage('Build App Image') {
                     steps {
-                        sh """
+                        sh '''
                         docker build -t ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG} .
-                        """
+                        '''
                     }
                 }
 
                 stage('Build Migration Image') {
                     steps {
-                        sh """
+                        sh '''
                         docker build -t ${DOCKER_MIGRATION_IMAGE_NAME}:${DOCKER_IMAGE_TAG} -f scripts/Dockerfile.migration .
-                        """
+                        '''
                     }
                 }
             }
         }
 
-        stage('Run Unit Tests') {
+        stage('Push Images') {
             steps {
-                sh "echo 'Run tests here (npm test / mvn test / pytest)'"
-            }
-        }
-
-        stage('Security Scan (Trivy)') {
-            steps {
-                sh "echo 'Run trivy scan here'"
-                # Example (if installed):
-                # sh "trivy image ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}"
-            }
-        }
-
-        stage('Push Docker Images') {
-            steps {
-                sh """
-                echo "Login required here if DockerHub push needed"
+                sh '''
                 docker push ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}
                 docker push ${DOCKER_MIGRATION_IMAGE_NAME}:${DOCKER_IMAGE_TAG}
-                """
+                '''
             }
         }
 
-        stage('Deploy Docker Container') {
+        stage('Deploy Container') {
             steps {
-                sh """
+                sh '''
                 docker rm -f ${CONTAINER_NAME} || true
 
                 docker run -d \
                 -p ${PORT}:3000 \
                 --name ${CONTAINER_NAME} \
                 ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}
-                """
+                '''
             }
         }
     }
 
     post {
         success {
-            echo "✅ Deployment Successful!"
-            echo "🌐 App running at: http://<server-ip>:3000"
+            echo "✅ SUCCESS: App deployed successfully"
         }
 
         failure {
-            echo "❌ Pipeline Failed - check logs"
+            echo "❌ FAILED: Check logs"
         }
     }
 }
