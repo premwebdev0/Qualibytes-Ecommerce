@@ -2,16 +2,18 @@
 
 pipeline {
     agent any
-    
+
     environment {
-        // Updated image names for QBShop project (DEV)
         DOCKER_IMAGE_NAME = 'qazsxedc/qbshop-app'
         DOCKER_MIGRATION_IMAGE_NAME = 'qazsxedc/qbshop-migration'
         DOCKER_IMAGE_TAG = "${BUILD_NUMBER}"
-        GITHUB_CREDENTIALS = credentials('github-credentials')
+
+        CONTAINER_NAME = "ecommerce-container"
+        PORT = "3000"
+
         GIT_BRANCH = "dev"
     }
-    
+
     stages {
 
         stage('Cleanup Workspace') {
@@ -30,33 +32,20 @@ pipeline {
             }
         }
 
-        //  NEW STAGE: Cleanup old Docker images to avoid disk full issues
-        stage('Cleanup Old Docker Images') {
+        stage('Cleanup Old Docker Resources') {
             steps {
                 script {
-                    echo "Cleaning up old Docker images, containers & volumes..."
-
-                    // Remove dangling images
                     sh "docker image prune -f"
-
-                    // Remove unused images older than 12 hours
-                    sh "docker image prune -a --force --filter \"until=12h\""
-
-                    // Remove stopped containers
                     sh "docker container prune -f"
-
-                    // Remove unused volumes (safe)
                     sh "docker volume prune -f"
-
-                    echo "Cleanup completed successfully!"
                 }
             }
         }
-        
+
         stage('Build Docker Images') {
             parallel {
-                
-                stage('Build Main App Image') {
+
+                stage('Build App Image') {
                     steps {
                         script {
                             docker_build(
@@ -68,7 +57,7 @@ pipeline {
                         }
                     }
                 }
-                
+
                 stage('Build Migration Image') {
                     steps {
                         script {
@@ -83,7 +72,7 @@ pipeline {
                 }
             }
         }
-        
+
         stage('Run Unit Tests') {
             steps {
                 script {
@@ -91,19 +80,19 @@ pipeline {
                 }
             }
         }
-        
-        stage('Security Scan with Trivy') {
+
+        stage('Security Scan (Trivy)') {
             steps {
                 script {
                     trivy_scan()
                 }
             }
         }
-        
+
         stage('Push Docker Images') {
             parallel {
-                
-                stage('Push Main App Image') {
+
+                stage('Push App Image') {
                     steps {
                         script {
                             docker_push(
@@ -114,7 +103,7 @@ pipeline {
                         }
                     }
                 }
-                
+
                 stage('Push Migration Image') {
                     steps {
                         script {
@@ -128,7 +117,24 @@ pipeline {
                 }
             }
         }
-        
+
+        stage('Deploy Docker Container') {
+            steps {
+                script {
+
+                    sh """
+                    docker rm -f ${CONTAINER_NAME} || true
+                    docker pull ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}
+
+                    docker run -d \
+                    -p ${PORT}:3000 \
+                    --name ${CONTAINER_NAME} \
+                    ${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}
+                    """
+                }
+            }
+        }
+
         stage('Update Kubernetes Manifests') {
             steps {
                 script {
@@ -141,6 +147,17 @@ pipeline {
                     )
                 }
             }
+        }
+    }
+
+    post {
+        success {
+            echo "✅ Deployment Successful!"
+            echo "🌐 App running at: http://<JENKINS-IP>:3000"
+        }
+
+        failure {
+            echo "❌ Pipeline Failed - Check logs"
         }
     }
 }
