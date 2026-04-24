@@ -1,146 +1,38 @@
-@Library('Shared') _
-
 pipeline {
     agent any
-    
+
     environment {
-        // Updated image names for QBShop project (DEV)
-        DOCKER_IMAGE_NAME = 'qazsxedc/qbshop-app'
-        DOCKER_MIGRATION_IMAGE_NAME = 'qazsxedc/qbshop-migration'
-        DOCKER_IMAGE_TAG = "${BUILD_NUMBER}"
-        GITHUB_CREDENTIALS = credentials('github-credentials')
-        GIT_BRANCH = "dev"
+        IMAGE_NAME = "qazsxedc/qualibytes-ecommerce:v1"
+        CONTAINER_NAME = "ecommerce-container"
+        PORT = "3000"
     }
-    
+
     stages {
 
-        stage('Cleanup Workspace') {
+        stage('Pull Docker Image') {
             steps {
-                script {
-                    clean_ws()
-                }
+                sh 'docker pull "qazsxedc/qualibytes-ecommerce:v1"'
             }
         }
 
-        stage('Clone Repository') {
+       
+
+        stage('Run Container') {
             steps {
-                script {
-                    clone("https://github.com/premwebdev0/Qualibytes-Ecommerce.git")
-                }
+                sh '''
+               docker run -d \
+-p 3000:3000 \
+--name ecommerce-container \
+qazsxedc/qualibytes-ecommerce:v1
+'''
             }
         }
+    }
 
-        //  NEW STAGE: Cleanup old Docker images to avoid disk full issues
-        stage('Cleanup Old Docker Images') {
-            steps {
-                script {
-                    echo "Cleaning up old Docker images, containers & volumes..."
-
-                    // Remove dangling images
-                    sh "docker image prune -f"
-
-                    // Remove unused images older than 12 hours
-                    sh "docker image prune -a --force --filter \"until=12h\""
-
-                    // Remove stopped containers
-                    sh "docker container prune -f"
-
-                    // Remove unused volumes (safe)
-                    sh "docker volume prune -f"
-
-                    echo "Cleanup completed successfully!"
-                }
-            }
-        }
-        
-        stage('Build Docker Images') {
-            parallel {
-                
-                stage('Build Main App Image') {
-                    steps {
-                        script {
-                            docker_build(
-                                imageName: env.DOCKER_IMAGE_NAME,
-                                imageTag: env.DOCKER_IMAGE_TAG,
-                                dockerfile: 'Dockerfile',
-                                context: '.'
-                            )
-                        }
-                    }
-                }
-                
-                stage('Build Migration Image') {
-                    steps {
-                        script {
-                            docker_build(
-                                imageName: env.DOCKER_MIGRATION_IMAGE_NAME,
-                                imageTag: env.DOCKER_IMAGE_TAG,
-                                dockerfile: 'scripts/Dockerfile.migration',
-                                context: '.'
-                            )
-                        }
-                    }
-                }
-            }
-        }
-        
-        stage('Run Unit Tests') {
-            steps {
-                script {
-                    run_tests()
-                }
-            }
-        }
-        
-        stage('Security Scan with Trivy') {
-            steps {
-                script {
-                    trivy_scan()
-                }
-            }
-        }
-        
-        stage('Push Docker Images') {
-            parallel {
-                
-                stage('Push Main App Image') {
-                    steps {
-                        script {
-                            docker_push(
-                                imageName: env.DOCKER_IMAGE_NAME,
-                                imageTag: env.DOCKER_IMAGE_TAG,
-                                credentials: 'docker-hub-credentials'
-                            )
-                        }
-                    }
-                }
-                
-                stage('Push Migration Image') {
-                    steps {
-                        script {
-                            docker_push(
-                                imageName: env.DOCKER_MIGRATION_IMAGE_NAME,
-                                imageTag: env.DOCKER_IMAGE_TAG,
-                                credentials: 'docker-hub-credentials'
-                            )
-                        }
-                    }
-                }
-            }
-        }
-        
-        stage('Update Kubernetes Manifests') {
-            steps {
-                script {
-                    update_k8s_manifests(
-                        imageTag: env.DOCKER_IMAGE_TAG,
-                        manifestsPath: 'kubernetes',
-                        gitCredentials: 'github-credentials',
-                        gitUserName: 'Jenkins CI',
-                        gitUserEmail: 'jenkins@ci.local'
-                    )
-                }
-            }
+    post {
+        success {
+            echo "Application deployed successfully!"
+            echo "Access it at: http://<JENKINS-SERVER-IP>:3000"
         }
     }
 }
