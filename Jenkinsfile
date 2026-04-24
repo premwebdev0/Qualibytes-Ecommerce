@@ -16,17 +16,17 @@ pipeline {
         }
 
        
+stage('Run Container') {
+    steps {
+        sh '''
+        docker rm -f ecommerce-container || true
 
-        stage('Run Container') {
-            steps {
-                sh '''
-               docker run -d \
--p 3000:3000 \
---name ecommerce-container \
-qazsxedc/qualibytes-ecommerce:v1
-'''
-            }
-        }
+        docker run -d -p 3000:3000 \
+        --name ecommerce-container \
+        qazsxedc/qualibytes-ecommerce:v1
+        '''
+    }
+}
     }
 
     post {
